@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>评论查找 · 抖音作品</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="header">
+      <a class="brand" href="/" aria-label="评论查找首页"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M19 10.5a7.5 7.5 0 1 1-3.1-6.1M17 4h4v4M21 4l-7 7"/></svg></span>评论查找</a>
+      <span class="local-badge"><span></span>本地运行</span>
+    </header>
+
+    <main>
+      <div class="intro"><h1>在这个作品里，找到他的评论。</h1><p>评论少时连同楼中楼一起检查；评论多时先查一级评论。开始后自动进行。</p></div>
+      <div class="workspace">
+        <section class="setup-panel" aria-labelledby="setup-title">
+          <h2 id="setup-title">设置检查范围</h2>
+          <form id="search-form">
+            <label for="video-url">视频或图文作品链接</label>
+            <textarea id="video-url" name="videoUrl" rows="3" placeholder="粘贴视频、图文作品链接，或包含链接的分享文字" required maxlength="3000" spellcheck="false"></textarea>
+            <p class="field-help">支持 /video/ 视频、/note/ 图文、带 modal_id 的主页作品链接，以及 v.douyin.com 短链接。</p>
+            <label for="target">目标账号</label>
+            <input id="target" name="target" placeholder="抖音号，或完整个人主页链接" required maxlength="1000" autocomplete="off" spellcheck="false">
+            <p class="field-help">推荐使用主页链接，减少重名和账号标识歧义。</p>
+            <label for="session-mode">浏览器会话</label>
+            <select id="session-mode" name="sessionMode" aria-describedby="session-help">
+              <option value="saved" selected>本工具已有会话（可登录，也可未登录）</option>
+              <option value="guest">未登录临时会话</option>
+            </select>
+            <p id="session-help" class="field-help session-help">两种模式都会先尝试读取公开评论。本工具使用独立浏览器，你在其他浏览器中的登录不会自动同步；临时会话关闭后不保留登录。</p>
+            <details class="advanced"><summary>检查限制<span>按需调整</span></summary><div class="limits">
+              <div><label for="max-minutes">最长运行时间</label><div class="unit-input"><input id="max-minutes" type="number" min="1" max="30" value="10" required><span>分钟</span></div></div>
+              <div><label for="max-comments">最多检查评论</label><div class="unit-input"><input id="max-comments" type="number" min="100" max="10000" step="100" value="2000" required><span>条</span></div></div>
+              <div class="reply-limit"><label for="reply-threshold">全量检索阈值</label><div class="unit-input"><input id="reply-threshold" type="number" min="0" max="10000" step="1" value="100" required aria-describedby="reply-help"><span>条</span></div></div>
+            </div><p id="reply-help" class="field-help">评论总数不超过阈值时检查一级评论及楼中楼；超过时仅查一级评论。默认 100 条，设为 0 可优先只查一级。达到时限或条数上限会保留已有结果。</p></details>
+            <div id="form-error" class="form-error" role="alert" hidden></div>
+            <button id="start-button" class="button primary" type="submit"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg><span>开始检查</span></button>
+          </form>
+          <div class="instructions"><h3>如何检查</h3><ol><li>开始后自动打开作品、加载评论，并按数量决定是否检查楼中楼。</li><li>加载中断时自动等待并重试，无需点击继续。</li><li>如抖音要求登录或验证，请在工具窗口完成，随后会自动恢复检查。</li></ol><p>未登录能读取多少内容取决于抖音页面。登录在抖音页面完成，无需在此填写密码或 Cookie。</p></div>
+        </section>
+
+        <section class="results-panel" aria-labelledby="results-title">
+          <div class="panel-heading"><h2 id="results-title">检查结果</h2><span id="status-label" class="status-label">等待开始</span></div>
+          <div id="connection-error" class="connection-error" role="status" hidden>本地服务暂时无法连接，正在重试…</div>
+          <div id="demo-banner" class="demo-banner" hidden><strong>演示数据</strong><span>仅用于预览界面，未检索任何真实账号。</span><button id="exit-demo" type="button">退出演示</button></div>
+          <div id="empty-state" class="empty-state">
+            <div class="empty-symbol" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M35 25V13a4 4 0 0 0-4-4H13a4 4 0 0 0-4 4v18a4 4 0 0 0 4 4h5l6 5v-5"/><path d="M16 18h12M16 24h8"/><circle cx="33" cy="32" r="7"/><path d="m38 37 5 5"/></svg></div>
+            <h3>一次检查，一个明确范围</h3><p>在左侧填入作品链接和目标账号。<br>匹配到的评论会出现在这里。</p>
+            <button id="show-demo" class="text-button" type="button">查看演示结果 <span aria-hidden="true">↗</span></button>
+          </div>
+          <div id="job-content" hidden>
+            <div class="job-summary"><div id="verdict-icon" class="verdict-icon" aria-hidden="true"></div><div><h3 id="job-title"></h3><p id="job-message" aria-live="polite"></p></div></div>
+            <div id="job-context" class="job-context"><div><span>目标账号</span><strong id="job-target"></strong></div><div><span>指定作品</span><a id="job-video" target="_blank" rel="noopener noreferrer"></a></div><div><span>浏览器会话</span><strong id="job-session"></strong></div><div><span>检查范围</span><strong id="job-scope"></strong></div></div>
+            <div class="scan-stats" aria-label="检查统计"><div><strong id="comments-count">0</strong><span>一级评论</span></div><div><strong id="replies-count">0</strong><span>楼中楼回复</span></div><div><strong id="unresolved-count">0</strong><span>待核验项目</span></div></div>
+            <div id="job-actions" class="job-actions"><button id="stop-button" type="button" class="button secondary" hidden>停止检查</button></div>
+            <div id="coverage-note" class="coverage-note" hidden></div>
+            <div id="result-exports" class="export-actions result-exports" hidden><a id="export-csv" href="/api/export?format=csv" download>导出 CSV</a><a id="export-json" href="/api/export?format=json" download>导出完整 JSON</a></div>
+            <section id="matches-section" hidden aria-labelledby="matches-title"><div class="matches-heading"><h3 id="matches-title">匹配评论 <span id="match-count"></span></h3></div><div id="matches-list"></div></section>
+            <div id="empty-result" class="empty-result" hidden></div>
+            <details id="log-details" class="log-details"><summary>检查记录<span id="log-count"></span></summary><ol id="log-list"></ol></details>
+          </div>
+        </section>
+      </div>
+      <footer><span>仅检查当前作品在所选范围内可读取的评论。</span><span>未检索楼中楼时，不作全量“没有评论”的判断。</span></footer>
+    </main>
+  </div>
+</body>
+</html>
