@@ -1,0 +1,15 @@
+node_modules/
+.local/
+*.log
+.env
+.env.*
+!.env.example
+exports/
+douyin-comments-*.json
+douyin-comments-*.csv
+douyin-comment-result.*
+*.zip
+playwright-report/
+test-results/
+.DS_Store
+Thumbs.db
