@@ -430,6 +430,152 @@ test('adaptive empty results finish the complete all-comment scope without reply
   assert.equal(result.coverage.allCommentsComplete, true);
 });
 
+test('all available pages can be exhausted while the reported total still prevents a complete negative', () => {
+  const ledger = new ScanLedger(video, target, { replyThreshold: 100 });
+  const parents = Array.from({ length: 28 }, (_, i) => {
+    const children = Array.from({ length: i < 10 ? 2 : 1 }, (_, j) => comment(`r${i}-${j}`));
+    return comment(`p${i}`, other, { reply_comment_total: children.length, reply_comment: children });
+  });
+  ledger.ingest(main('0'), page(parents.slice(0, 20), true, '20', { total: 77 }));
+  assert.equal(ledger.snapshot().coverage.pagesExhausted, false);
+  ledger.ingest(main('20'), page(parents.slice(20), false, '0', { total: 77 }));
+  const result = ledger.snapshot();
+  assert.equal(result.stats.comments, 28);
+  assert.equal(result.stats.replies, 38);
+  assert.equal(result.stats.replyThreadsDone, 28);
+  assert.equal(result.coverage.pagesExhausted, true);
+  assert.deepEqual(result.coverage.reportedTotals, [77]);
+  assert.deepEqual(result.coverage.pendingReplyIds, []);
+  assert.equal(result.complete, false);
+  assert.equal(result.verdict, 'incomplete');
+  assert.match(result.reason, /总数与已读取数量不一致/);
+});
+
+test('exhausted pagination and reported totals remain separate from changing aggregate counts', () => {
+  const ledger = new ScanLedger(video, target, { replyThreshold: 100 });
+  ledger.ingest(main('0'), page([comment('p1')], true, '20', { total: 7 }));
+  ledger.ingest(main('20'), page([comment('p2')], false, '0', { total: 5 }));
+  const result = ledger.snapshot();
+  assert.equal(result.coverage.pagesExhausted, true);
+  assert.deepEqual(result.coverage.reportedTotals, [5, 7]);
+  assert.equal(result.complete, false);
+  assert.match(result.diagnostics.join(' '), /总数在扫描期间/);
+});
+
+test('unresolved target or comment authors do not require traversing exhausted pages again', () => {
+  const unresolvedTarget = new ScanLedger(video, { kind: 'handle', value: 'target.handle' }, { replyThreshold: 100 });
+  unresolvedTarget.ingest(main('0'), page([comment('p1')], false, '0', { total: 1 }));
+  assert.equal(unresolvedTarget.snapshot().coverage.pagesExhausted, true);
+  assert.equal(unresolvedTarget.snapshot().complete, false);
+  unresolvedTarget.setTargetIdentity(own);
+  assert.equal(unresolvedTarget.snapshot().complete, true);
+  const unresolvedAuthor = new ScanLedger(video, target, { replyThreshold: 100 });
+  unresolvedAuthor.ingest(main('0'), page([comment('p1', {})], false, '0', { total: 1 }));
+  assert.equal(unresolvedAuthor.snapshot().coverage.pagesExhausted, true);
+  assert.equal(unresolvedAuthor.snapshot().verdict, 'incomplete');
+});
+
+test('pending reply IDs exclude zero-reply, complete inline, and complete paginated threads', () => {
+  const ledger = new ScanLedger(video, target, { replyThreshold: 100 });
+  ledger.ingest(main('0'), page([
+    comment('zero'),
+    comment('inline', other, { reply_comment_total: 1, reply_comment: [comment('ri')] }),
+    comment('paged', other, { reply_comment_total: 1 }),
+    comment('missing', other, { reply_comment_total: 2, reply_comment: [comment('rm1')] }),
+  ], false, '0', { total: 8 }));
+  ledger.ingest(replies('paged', '0'), page([comment('rp')], false, '0', { total: 1 }));
+  assert.deepEqual(ledger.snapshot().coverage.pendingReplyIds, ['missing']);
+  assert.equal(ledger.snapshot().coverage.pagesExhausted, false);
+  ledger.ingest(replies('missing', '0'), page([comment('rm1'), comment('rm2')], false, '0', { total: 2 }));
+  assert.deepEqual(ledger.snapshot().coverage.pendingReplyIds, []);
+  assert.equal(ledger.snapshot().coverage.pagesExhausted, true);
+  assert.equal(ledger.snapshot().complete, true);
+});
+
+test('missing reply counts and orphan reply parents cannot exhaust the all-comment scope', () => {
+  const unknown = new ScanLedger(video, target, { replyThreshold: 100 });
+  unknown.ingest(main('0'), page([comment('p1', other, { reply_comment_total: undefined })], false, '0', { total: 1 }));
+  unknown.ingest(replies('p1', '0'), page([]));
+  assert.equal(unknown.snapshot().coverage.scope, 'all');
+  assert.equal(unknown.snapshot().coverage.pagesExhausted, false);
+  assert.deepEqual(unknown.snapshot().coverage.pendingReplyIds, ['p1']);
+  const orphan = new ScanLedger(video, target, { replyThreshold: 100 });
+  orphan.ingest(main('0'), page([], false, '0', { total: 0 }));
+  orphan.ingest(replies('unseen-parent', '0'), page([comment('r1')]));
+  assert.equal(orphan.snapshot().coverage.pagesExhausted, false);
+  assert.deepEqual(orphan.snapshot().coverage.pendingReplyIds, ['unseen-parent']);
+});
+
+test('reply request errors and conflicting main pagination prevent exhaustion', () => {
+  const ledger = new ScanLedger(video, target, { replyThreshold: 100 });
+  ledger.ingest(main('0'), page([comment('p1', other, { reply_comment_total: 1, reply_comment: [comment('r1')] })], false, '0', { total: 2 }));
+  ledger.ingest(replies('p1', '0'), { status_code: 403 });
+  assert.equal(ledger.snapshot().coverage.pagesExhausted, false);
+  assert.deepEqual(ledger.snapshot().coverage.pendingReplyIds, ['p1']);
+  ledger.ingest(replies('p1', '0'), page([comment('r1')], false, '0', { total: 1 }));
+  assert.equal(ledger.snapshot().coverage.pagesExhausted, true);
+  ledger.ingest(main('0'), page([comment('p1', other, { reply_comment_total: 1 })], true, '20', { total: 2 }));
+  ledger.ingest(main('20'), page([], false, '0', { total: 2 }));
+  assert.equal(ledger.snapshot().coverage.pagesExhausted, false);
+});
+
+test('main-only exhaustion does not wait for replies outside the selected scope', () => {
+  const ledger = new ScanLedger(video, target, { replyThreshold: 100 });
+  ledger.ingest(main('0'), page([comment('p1', other, { reply_comment_total: 101 })], false, '0', { total: 102 }));
+  assert.equal(ledger.snapshot().coverage.scope, 'main_only');
+  assert.equal(ledger.snapshot().coverage.pagesExhausted, true);
+  assert.deepEqual(ledger.snapshot().coverage.pendingReplyIds, ['p1']);
+  assert.equal(ledger.snapshot().complete, true);
+});
+
+test('embedded and panel pagination cannot splice their identical cursors into an early end', () => {
+  const ledger=new ScanLedger(video,target,{replyThreshold:100});
+  const rows=Array.from({length:32},(_,i)=>{
+    const replyCount=i<10 || (i>=28&&i<31)?2:1;
+    return comment(`p${i}`,i===28?own:other,{reply_comment_total:replyCount,
+      reply_comment:Array.from({length:replyCount},(_,j)=>comment(`r${i}-${j}`))});
+  });
+  const embedded=cursor=>main(cursor)+'&count=20&item_type=0&cut_version=1';
+  const panel=cursor=>main(cursor)+'&count=10&item_type=0&cut_version=1&pc_img_format=webp&insert_ids=';
+  ledger.ingest(embedded(20),page(rows.slice(16,28),false,40,{total:77}));
+  ledger.ingest(panel(0),page(rows.slice(0,10),true,10,{total:77}));
+  ledger.ingest(panel(10),page(rows.slice(10,20),true,20,{total:77}));
+  let result=ledger.snapshot();
+  assert.equal(result.stats.comments,28);
+  assert.equal(result.stats.replies,38);
+  assert.equal(result.stats.mainComplete,false);
+  assert.equal(result.coverage.pagesExhausted,false);
+  ledger.ingest(panel(20),page(rows.slice(20,30),true,30,{total:77}));
+  ledger.ingest(panel(30),page(rows.slice(30),false,40,{total:77}));
+  result=ledger.snapshot();
+  assert.equal(result.stats.comments,32);
+  assert.equal(result.stats.replies,45);
+  assert.equal(result.stats.pages,4);
+  assert.equal(result.complete,true);
+  assert.equal(result.matches[0].id,'p28');
+  assert.deepEqual(result.diagnostics,[]);
+});
+
+test('a changing page size within one list does not create separate pagination streams',()=>{
+  const ledger=new ScanLedger(video,target,{replyThreshold:100});
+  ledger.ingest(main(0)+'&count=10',page([comment('one')],true,10,{total:2}));
+  ledger.ingest(main(10)+'&count=20',page([comment('two')],false,30,{total:2}));
+  assert.equal(ledger.mainStreams.size,1);
+  assert.equal(ledger.snapshot().complete,true);
+});
+
+test('a contradictory zero-total continuation is recoverable and never a pagination end',()=>{
+  const ledger=new ScanLedger(video,target,{replyThreshold:100});
+  ledger.ingest(main(0),page([comment('one')],true,10,{total:2}));
+  const rejected=ledger.ingest(main(10),page([],false,20,{total:0}));
+  assert.equal(rejected.accepted,false);
+  assert.equal(ledger.snapshot().coverage.pagesExhausted,false);
+  assert.equal(ledger.main.pages.has('10'),false);
+  ledger.ingest(main(10),page([comment('two',own)],false,20,{total:2}));
+  assert.equal(ledger.snapshot().complete,true);
+  assert.equal(ledger.snapshot().matches[0].id,'two');
+});
+
 test('malformed totals do not prematurely enable reply expansion', () => {
   for (const total of [false, [], {}, '', -1, 1.5]) {
     const ledger = new ScanLedger(video, target, { replyThreshold: 100 });

@@ -44,6 +44,99 @@ test('a successful automatic reload finishes without a manual resume',async()=>{
   assert.equal(job.result.coverage.allCommentsComplete,true);
 });
 
+test('exhausted pages with a count mismatch finish once without reloading or losing matches',async()=>{
+  for(const found of [false,true]) {
+    const {scanner,job,actions}=fixture();
+    const comments=Array.from({length:28},(_,i)=>({cid:`p${i}`,reply_comment_total:i<10?2:1,
+      user:{sec_uid:found&&i===0?'MS4wLjABAAAAtarget123':'someone-else'},
+      reply_comment:Array.from({length:i<10?2:1},(_,j)=>({cid:`r${i}-${j}`,user:{sec_uid:'someone-else'}}))}));
+    scanner.ledger.ingest(URL,{status_code:0,total:77,cursor:28,has_more:0,comments});
+    scanner.reloadVideo=async()=>assert.fail('a displayed count mismatch must never reload exhausted pages');
+    await scanner.runScan();
+    assert.equal(job.status,'finished');
+    assert.equal(job.stopReason,'range_exhausted');
+    assert.equal(job.result.coverage.pagesExhausted,true);
+    assert.equal(job.result.complete,false);
+    assert.equal(job.result.verdict,found?'found':'incomplete');
+    assert.equal(job.result.matches.length,found?1:0);
+    assert.equal(job.counts.comments,28);
+    assert.equal(job.counts.replies,38);
+    assert.equal(job.automatic.retryAttempt,0);
+    assert.ok(actions.length>0);
+    assert.ok(actions.every(action=>!action.rewind&&!action.includeReplies));
+    assert.match(job.result.reason,/已读完当前返回/);
+    assert.match(job.result.reason,/总数 77 条/);
+  }
+});
+
+test('long scrolling without new response data does not interrupt a progressing scan',async()=>{
+  const {scanner,job}=fixture();
+  scanner.ledger.ingest(URL,{status_code:0,total:2,cursor:1,has_more:1,comments:[{cid:'first',reply_comment_total:0,user:{sec_uid:'other'}}]});
+  let scrolls=0;
+  scanner.page.evaluate=async(fn,arg)=>{
+    if(!arg) return clear;
+    scrolls++;
+    if(scrolls===40) scanner.ledger.ingest(URL.replace('cursor=0','cursor=1'),{status_code:0,total:2,cursor:2,has_more:0,comments:[{cid:'last',reply_comment_total:0,user:{sec_uid:'other'}}]});
+    return {action:'scroll',moved:true,top:scrolls*300};
+  };
+  scanner.reloadVideo=async()=>assert.fail('56 seconds of forward scrolling is not a loading failure');
+  await scanner.runScan();
+  assert.equal(scrolls,40);
+  assert.equal(job.result.complete,true);
+  assert.equal(job.automatic.retryAttempt,0);
+});
+
+test('scroll jitter does not postpone the retry budget indefinitely',async()=>{
+  const {scanner,job}=fixture();
+  let scrolls=0,reloads=0;
+  scanner.page.evaluate=async(fn,arg)=>arg?{action:'scroll',moved:true,top:++scrolls%2?300:280}:clear;
+  scanner.reloadVideo=async()=>{reloads++;};
+  await scanner.runScan();
+  assert.equal(reloads,3);
+  assert.ok(scrolls<100);
+  assert.equal(job.status,'finished');
+  assert.match(job.message,/自动重试/);
+});
+
+test('exhausted comments check the tail and wait for identity without reloading',async()=>{
+  for(const resolve of [false,true]) {
+    const {scanner,job,actions}=fixture();
+    scanner.target={kind:'handle',value:'target-account'};
+    scanner.ledger=new ScanLedger(VIDEO,scanner.target,{replyThreshold:100});
+    scanner.ledger.ingest(URL,empty);
+    scanner.reloadVideo=async()=>assert.fail('an unresolved identity must not reload exhausted comments');
+    let lookups=0;
+    scanner.resolveIdentity=async()=>{
+      lookups++;
+      if(resolve&&lookups===3) scanner.ledger.setTargetIdentity({unique_id:'target-account',uid:'target-id'});
+    };
+    await scanner.runScan();
+    assert.equal(job.status,'finished');
+    assert.ok(actions.every(action=>!action.rewind&&!action.includeReplies));
+    assert.equal(job.automatic.retryAttempt,0);
+    assert.equal(job.result.complete,resolve);
+    assert.equal(job.result.verdict,resolve?'not_found':'incomplete');
+    assert.ok(lookups>=3&&lookups<=31,'identity-only waiting must remain bounded');
+  }
+});
+
+test('a terminal response with a count gap does not stop before lower comments load',async()=>{
+  const {scanner,job}=fixture();
+  const first={cid:'first',reply_comment_total:0,user:{sec_uid:'other'}};
+  scanner.ledger.ingest(URL,{status_code:0,total:2,cursor:1,has_more:0,comments:[first]});
+  let scrolls=0;
+  scanner.page.evaluate=async(fn,arg)=>{
+    if(!arg) return clear;
+    if(++scrolls===3) scanner.ledger.ingest(URL,{status_code:0,total:2,cursor:2,has_more:0,comments:[first,{cid:'lower-target',reply_comment_total:0,user:{sec_uid:'MS4wLjABAAAAtarget123'}}]});
+    return {action:'scroll',moved:true,top:scrolls*300,height:400,totalHeight:1800};
+  };
+  scanner.reloadVideo=async()=>assert.fail('continue scrolling in place');
+  await scanner.runScan();
+  assert.equal(scrolls,3);
+  assert.equal(job.result.complete,true);
+  assert.equal(job.result.matches[0].id,'lower-target');
+});
+
 test('opening the initial work retries a transient navigation failure automatically',async()=>{
   const {scanner,job,states}=fixture();
   let navigations=0,scans=0;

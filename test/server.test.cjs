@@ -65,7 +65,7 @@ test('idle state and export accurately report that no inspection exists', async 
   const state = await request('GET', '/api/state');
   assert.equal(state.status, 200);
   assert.equal(state.json.appId, 'douyin-comment-finder');
-  assert.equal(state.json.version, '1.2.0');
+  assert.equal(state.json.version, '1.2.1');
   assert.equal(state.json.job, null);
   for (const format of ['json', 'csv']) {
     const response = await request('GET', `/api/export?format=${format}`);

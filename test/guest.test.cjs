@@ -33,7 +33,7 @@ function browserMock() {
   };
   const context = {
     pages:() => [page],
-    newPage:async () => page,
+    newPage:async () => { calls.push({method:'context.newPage'}); return page; },
     on(name, handler) { contextEvents.set(name, handler); return context; },
     close:async () => { calls.push({method:'context.close'}); },
   };
@@ -97,11 +97,12 @@ test('saved launch uses the explicit persistent profile and closes that context'
   assert.equal(persistent.length, 1);
   assert.equal(persistent[0].profile, profileDir);
   assert.equal(mock.calls.filter(x => x.method === 'chromium.launch').length, 0);
+  assert.equal(mock.calls.filter(x => x.method === 'context.newPage').length, 1);
   await scanner.close();
   assert.equal(mock.calls.filter(x => x.method === 'context.close').length, 1);
 });
 
-test('comment responses are observed at context scope, including a second browser tab', async t => {
+test('a restored tab cannot inject a same-video terminal page into the active scan', async t => {
   const mock = browserMock();
   const {scanner} = fixture('guest', PROFILE, {
     playwright:mock.playwright, profileDir:temporaryProfile(t),
@@ -110,14 +111,19 @@ test('comment responses are observed at context scope, including a second browse
   assert.equal(typeof mock.contextEvents.get('response'), 'function');
   assert.equal(mock.pageEvents.has('response'), false);
   scanner.ledger = new ScanLedger(VIDEO_ID, scanner.target);
-  // The event belongs to another tab; no listener is installed on that page.
-  mock.contextEvents.get('response')({
-    url:() => COMMENT_URL, status:() => 200,
+  const response = sourcePage => ({
+    url:() => COMMENT_URL, status:() => 200, request:()=>({frame:()=>({page:()=>sourcePage})}),
     json:async () => ({status_code:0, cursor:0, has_more:0, total:1, comments:[{
       cid:'second-tab-comment', aweme_id:VIDEO_ID, text:'匹配评论', reply_comment_total:0,
       user:{uid:'target-uid', sec_uid:'MS4wLjABAAAAtarget123'},
     }]}),
   });
+  mock.contextEvents.get('response')(response({url:()=>scanner.job.videoUrl}));
+  await Promise.all([...scanner.pending]);
+  assert.equal(scanner.ledger.main.pages.size,0);
+  assert.equal(scanner.ledger.records.size,0);
+  assert.equal(scanner.ledger.snapshot().complete,false);
+  mock.contextEvents.get('response')(response(mock.page));
   await Promise.all([...scanner.pending]);
   const result = scanner.ledger.snapshot();
   assert.equal(result.verdict, 'found');
