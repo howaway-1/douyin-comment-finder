@@ -140,8 +140,9 @@ function render(job, force = false) {
     if (matches.length && job.diagnostic?.code === 'no_progress') { title = `已找到 ${matches.length} 条，部分范围待核验`; badge = '已找到'; tone = 'check'; }
   }
   if (finished) {
-    if (verdict === 'found') { title = `找到 ${matches.length} 条匹配评论${mainOnly ? '（仅一级）' : ''}`; badge = '已找到'; tone = 'check'; }
+    if (verdict === 'found') { title = `找到 ${matches.length} 条匹配评论`; badge = '已找到'; tone = 'check'; }
     else if (verdict === 'not_found') { title = mainOnly ? '一级评论中未找到匹配' : '本次检查未找到匹配评论'; badge = mainOnly ? '一级检查完成' : '检查完成'; tone = 'check'; }
+    else if (job.stopReason === 'range_exhausted') { title = '已读完返回内容，完整性待确认'; badge = '读取结束'; tone = 'warning'; }
     else { title = '检查尚未完成'; badge = '检查未完成'; tone = 'warning'; }
   }
   ui['job-title'].textContent = title;
@@ -171,7 +172,7 @@ function render(job, force = false) {
   ui['result-exports'].hidden = demoMode || !finished || !result;
   ui['match-count'].textContent = `${matches.length} 条`;
   ui['empty-result'].hidden = !finished || Boolean(matches.length);
-  ui['empty-result'].textContent = verdict === 'not_found' ? (mainOnly ? '已检查的一级评论中没有匹配到目标账号。楼中楼尚未检索。' : '在本次已检查的一级评论及楼中楼中，没有匹配到目标账号。') : '目前没有匹配结果。请查看上方未完成原因，处理后可重新检查。';
+  ui['empty-result'].textContent = verdict === 'not_found' ? (mainOnly ? '已检查的一级评论中没有匹配到目标账号。楼中楼尚未检索。' : '在本次已检查的一级评论及楼中楼中，没有匹配到目标账号。') : job.stopReason === 'range_exhausted' ? '当前返回内容中没有匹配结果。请查看上方数量差异或账号核验说明，暂不能判定该账号没有评论。' : '目前没有匹配结果。请查看上方未完成原因，处理后可重新检查。';
   renderMatches(matches,job);
   ui['export-csv'].hidden = demoMode;
   ui['export-json'].hidden = demoMode;
