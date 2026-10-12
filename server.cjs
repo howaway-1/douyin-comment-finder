@@ -7,7 +7,7 @@ const {parseVideoInput,parseTargetInput} = require('./lib/domain.cjs');
 const {BrowserScanner} = require('./lib/browser.cjs');
 const ROOT = __dirname;
 const APP_ID = 'douyin-comment-finder';
-const VERSION = '1.2.0';
+const VERSION = '1.2.1';
 function csvCell(value) {
   let str = String(value ?? '');
   if (/^[\s]*[=+@\-]/.test(str)) str = "'" + str;

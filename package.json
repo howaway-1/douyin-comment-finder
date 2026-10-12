@@ -1,6 +1,6 @@
 {
   "name": "douyin-comment-finder",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "description": "本地抖音指定视频或图文作品评论作者检索",
   "scripts": {"start": "node server.cjs", "test": "node --test test/*.test.cjs"},

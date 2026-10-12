@@ -6,6 +6,8 @@
 
 [下载项目 ZIP](https://github.com/howaway-1/douyin-comment-finder/archive/refs/heads/main.zip) · [详细使用说明](docs/USAGE.md) · [常见问题](docs/FAQ.md) · [验证记录](VALIDATION.md)
 
+当前版本 **1.2.1**：修复评论加载中途停止、不同列表分页混合及长列表反复重试的问题。已通过 116 项测试；真实图文作品复测完整读取 77 条当前返回的评论，并找到目标账号评论。详见[验证记录](VALIDATION.md)。
+
 ## 能做什么
 
 - 支持视频、图文作品、带 `modal_id` 的作品链接，以及 `v.douyin.com` 分享短链接。
